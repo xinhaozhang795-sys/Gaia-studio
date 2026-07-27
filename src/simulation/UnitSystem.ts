@@ -49,7 +49,9 @@ export const OCEAN = {
 export function presetToScale(preset: string): number {
   switch (preset) {
     case '1x':    return 1;              // realtime — 1 sim sec / real sec
+    case '10x':   return 10;             // 10 sim sec / real sec
     case '24x':   return 24 * 3600;     // 1 simulated day per real hour
+    case '100x':  return 100;            // 100 sim sec / real sec
     case '365x':  return 365 * 86400;   // 1 simulated year per real day
     case '1000x': return 1000 * 86400;  // fast scientific simulation
     default:      return 1;

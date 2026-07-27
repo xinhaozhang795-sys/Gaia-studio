@@ -119,9 +119,108 @@ export interface Translation {
   reportOceanTend: string;
   reportHadley: string;
 
+  // Sprint 5 — Season + diurnal + ocean + hydrology report
+  sectionSeason: string;
+  reportSeason: string;
+  reportSeasonProgress: string;
+  reportSolarDeclination: string;
+  reportDayPhase: string;
+  reportDayBlend: string;
+  reportGoldenHour: string;
+
+  sectionOcean: string;
+  reportOceanTemp: string;
+  reportOceanDepth: string;
+  reportOceanSalinity: string;
+  reportOceanCoverage: string;
+
+  sectionHydrology: string;
+  reportIceFraction: string;
+  reportCloudCover: string;
+  reportCloudDensity: string;
+  reportCloudHeight: string;
+  reportWindSpeed: string;
+  reportWindDirection: string;
+  reportPrecipitableWater: string;
+
+  // Sprint 6 — Ocean dynamics panel
+  sectionOceanDynamics: string;
+  reportOceanCurrentSpeed: string;
+  reportOceanCurrentDir: string;
+  reportEquatorialCurrent: string;
+  reportPolarCurrent: string;
+  reportHeatTransport: string;
+  reportSST: string;
+
+  // Sprint 6 — Wind panel
+  sectionWind: string;
+  reportTradeWind: string;
+  reportWesterlies: string;
+  reportPolarWind: string;
+  reportJetStream: string;
+  reportMonsoon: string;
+  reportGlobalWindSpeed: string;
+
+  // Sprint 6 — Weather panel
+  sectionWeather: string;
+  reportHumidity: string;
+  reportStormIntensity: string;
+  reportCloudLifetime: string;
+  reportPrecipType: string;
+  reportEvaporation: string;
+  reportPrecipitation: string;
+  reportRiverDischarge: string;
+
+  // Sprint 6 — Cloud panel
+  sectionCloud: string;
+
+  // Precipitation type labels
+  precipRain: string;
+  precipSnow: string;
+  precipSleet: string;
+  precipNone: string;
+
   // ── 3-D scene ─────────────────────────────────────────────────────────────
   sunLabel: string;
 
   // ── View mode display names (used in status bar) ──────────────────────────
   viewModeLabel: Record<string, string>;
+
+  // ── Sprint 6.5.1 — Developer Tools ────────────────────────────────────────
+  devTools: string;
+  devMonitor: string;
+  timeline: string;
+  charts: string;
+
+  // Developer monitor
+  devFrameTime: string;
+  devMemory: string;
+  devSimTick: string;
+  devSimTime: string;
+  devBuildVersion: string;
+  devEngineCount: string;
+  devEngineTimings: string;
+  devTotalTime: string;
+
+  // Timeline
+  tlPlay: string;
+  tlPause: string;
+  tlReset: string;
+  tlStep: string;
+  tlSpeed: string;
+  tlDay: string;
+  tlYear: string;
+  tlSimTime: string;
+  tlSeek: string;
+  clock10x: string;
+  clock100x: string;
+
+  // Charts
+  chartTemperature: string;
+  chartHumidity: string;
+  chartWind: string;
+  chartOcean: string;
+  chartPressure: string;
+  chartExport: string;
+  chartNoData: string;
 }

@@ -75,6 +75,39 @@ export interface OceanState {
   meanTemperature: number;
   /** Total heat capacity of the mixed layer, J/K. */
   heatCapacity: number;
+  // ── Sprint 6: live ocean dynamics ────────────────────────────────────────
+  /** Global mean surface current speed, m/s. */
+  oceanCurrentSpeed: number;
+  /** Prevailing surface current direction, radians [0..2π). */
+  oceanCurrentDirection: number;
+  /** Equatorial current strength, m/s (eastward trade-driven). */
+  equatorialCurrent: number;
+  /** Polar current strength, m/s (westward thermohaline). */
+  polarCurrent: number;
+  /** Poleward heat transport, PW (petawatts). */
+  heatTransport: number;
+  /** Sea-surface temperature anomaly, K (deviation from mean). */
+  seaSurfaceTemperature: number;
+}
+
+// ── Season ───────────────────────────────────────────────────────────────────
+export type Season = 'spring' | 'summer' | 'autumn' | 'winter';
+
+export interface SeasonState {
+  /** Current season label (Northern Hemisphere). */
+  season: Season;
+  /** Day-of-year phase angle [0..2π), 0 = vernal equinox. */
+  phaseAngle: number;
+  /** Sub-season interpolation factor [0..1) within the current season. */
+  seasonProgress: number;
+  /** Solar declination angle, radians (axial tilt × sin of orbital position). */
+  solarDeclination: number;
+  /** Day-night transition state: 'day' | 'sunrise' | 'sunset' | 'twilight' | 'night'. */
+  dayPhase: 'day' | 'sunrise' | 'sunset' | 'twilight' | 'night';
+  /** Continuous day-blend factor [0..1] — 1 = full day, 0 = full night, smooth across terminator. */
+  dayBlend: number;
+  /** Sunrise/sunset tint intensity [0..1], peaks at terminator. */
+  goldenHour: number;
 }
 
 // ── Climate ───────────────────────────────────────────────────────────────────
@@ -105,7 +138,25 @@ export interface ClimateState {
   oceanTempTendency: number;
 }
 
+// ── Wind ──────────────────────────────────────────────────────────────────────
+export interface WindState {
+  /** Trade wind strength, m/s (tropical easterlies). */
+  tradeWind: number;
+  /** Westerly wind strength, m/s (mid-latitude). */
+  westerlies: number;
+  /** Polar easterly wind strength, m/s. */
+  polarWind: number;
+  /** Jet stream speed, m/s (upper troposphere). */
+  jetStream: number;
+  /** Monsoon strength factor [0..1] — seasonal land-sea breeze amplification. */
+  monsoonStrength: number;
+  /** Global mean surface wind speed, m/s. */
+  globalWindSpeed: number;
+}
+
 // ── Hydrology ─────────────────────────────────────────────────────────────────
+export type PrecipitationType = 'rain' | 'snow' | 'sleet' | 'none';
+
 export interface HydrologyState {
   /** Total atmospheric water vapour, kg/m² (precipitable water). */
   precipitableWater: number;
@@ -119,6 +170,23 @@ export interface HydrologyState {
   iceFraction: number;
   /** Cloud cover fraction (0..1). */
   cloudCover: number;
+  /** Cloud density factor (0..1), drives shader opacity. */
+  cloudDensity: number;
+  /** Cloud-top altitude factor (0..1), maps to cloud shell scale. */
+  cloudHeight: number;
+  /** Global mean wind speed, m/s. */
+  windSpeed: number;
+  /** Prevailing wind direction, radians [0..2π) — 0 = east. */
+  windDirection: number;
+  // ── Sprint 6: complete water-cycle closure ───────────────────────────────
+  /** Relative humidity, % (0..100). */
+  humidity: number;
+  /** Storm intensity factor [0..1] — convective storm strength. */
+  stormIntensity: number;
+  /** Mean cloud lifetime, hours. */
+  cloudLifetime: number;
+  /** Dominant precipitation type. */
+  precipitationType: PrecipitationType;
 }
 
 // ── Geology ───────────────────────────────────────────────────────────────────
@@ -168,7 +236,9 @@ export interface EvolutionState {
 // ── Simulation control ────────────────────────────────────────────────────────
 export type ClockPreset =
   | '1x'
+  | '10x'
   | '24x'
+  | '100x'
   | '365x'
   | '1000x';
 
@@ -214,6 +284,8 @@ export interface GaiaState {
   planet: PlanetState;
   atmosphere: AtmosphereState;
   ocean: OceanState;
+  season: SeasonState;
+  wind: WindState;
   climate: ClimateState;
   hydrology: HydrologyState;
   geology: GeologyState;
