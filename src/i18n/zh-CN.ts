@@ -117,6 +117,64 @@ const zhCN: Translation = {
   reportOceanTend:   '海洋温度趋势',
   reportHadley:      '哈德利环流数',
 
+  // Season section
+  sectionSeason:     '季节',
+  reportSeason:      '当前季节',
+  reportSeasonProgress: '季节进度',
+  reportSolarDeclination: '太阳赤纬',
+  reportDayPhase:    '昼夜相位',
+  reportDayBlend:    '昼夜过渡',
+  reportGoldenHour:  '黄金时刻',
+
+  // Ocean section
+  sectionOcean:      '海洋',
+  reportOceanTemp:   '海洋温度',
+  reportOceanDepth:  '平均深度',
+  reportOceanSalinity: '盐度',
+  reportOceanCoverage: '覆盖率',
+
+  // Hydrology section
+  sectionHydrology:  '水文',
+  reportIceFraction: '冰盖比例',
+  reportCloudCover:  '云量',
+  reportCloudDensity:'云密度',
+  reportCloudHeight: '云顶高度',
+  reportWindSpeed:   '风速',
+  reportWindDirection: '风向',
+  reportPrecipitableWater: '可降水量',
+
+  sectionOceanDynamics:  '洋流动力学',
+  reportOceanCurrentSpeed: '洋流速度',
+  reportOceanCurrentDir: '洋流方向',
+  reportEquatorialCurrent: '赤道洋流',
+  reportPolarCurrent:    '极地洋流',
+  reportHeatTransport:   '热量输运',
+  reportSST:             '海表温度异常',
+
+  sectionWind:           '风场',
+  reportTradeWind:       '信风',
+  reportWesterlies:      '西风带',
+  reportPolarWind:       '极地东风',
+  reportJetStream:       '急流',
+  reportMonsoon:         '季风强度',
+  reportGlobalWindSpeed: '全球风速',
+
+  sectionWeather:        '天气',
+  reportHumidity:        '湿度',
+  reportStormIntensity:  '风暴强度',
+  reportCloudLifetime:   '云寿命',
+  reportPrecipType:      '降水类型',
+  reportEvaporation:     '蒸发率',
+  reportPrecipitation:   '降水率',
+  reportRiverDischarge:  '河流径流',
+
+  sectionCloud:          '云层',
+
+  precipRain:  '雨',
+  precipSnow:  '雪',
+  precipSleet: '雨夹雪',
+  precipNone:  '无',
+
   // ── 3-D scene ─────────────────────────────────────────────────────────────
   sunLabel: '太阳',
 
@@ -127,6 +185,41 @@ const zhCN: Translation = {
     night:       '夜景模式',
     wireframe:   '线框模式',
   },
+
+  // ── Sprint 6.5.1 — 开发者工具 ──────────────────────────────────────────
+  devTools:        '开发者工具',
+  devMonitor:      '监视器',
+  timeline:        '时间轴',
+  charts:          '图表',
+
+  devFrameTime:    '帧时间',
+  devMemory:       '内存',
+  devSimTick:      '模拟帧',
+  devSimTime:      '模拟时间',
+  devBuildVersion: '版本',
+  devEngineCount:  '引擎数',
+  devEngineTimings:'引擎耗时',
+  devTotalTime:    '总计',
+
+  tlPlay:    '播放',
+  tlPause:   '暂停',
+  tlReset:   '重置',
+  tlStep:    '单步',
+  tlSpeed:   '速度',
+  tlDay:     '日',
+  tlYear:    '年',
+  tlSimTime: '模拟时间',
+  tlSeek:    '跳转',
+  clock10x:  '10×',
+  clock100x: '100×',
+
+  chartTemperature: '温度',
+  chartHumidity:    '湿度',
+  chartWind:        '风速',
+  chartOcean:       '海洋',
+  chartPressure:    '气压',
+  chartExport:      '导出 CSV',
+  chartNoData:      '暂无数据',
 };
 
 export default zhCN;

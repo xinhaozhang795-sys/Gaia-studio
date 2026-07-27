@@ -117,6 +117,64 @@ const enUS: Translation = {
   reportOceanTend:   'Ocean Temp Tendency',
   reportHadley:      'Hadley Cells',
 
+  // Season section
+  sectionSeason:     'Season',
+  reportSeason:      'Current Season',
+  reportSeasonProgress: 'Season Progress',
+  reportSolarDeclination: 'Solar Declination',
+  reportDayPhase:    'Day Phase',
+  reportDayBlend:    'Day Blend',
+  reportGoldenHour:  'Golden Hour',
+
+  // Ocean section
+  sectionOcean:      'Ocean',
+  reportOceanTemp:   'Ocean Temp',
+  reportOceanDepth:  'Mean Depth',
+  reportOceanSalinity: 'Salinity',
+  reportOceanCoverage: 'Coverage',
+
+  // Hydrology section
+  sectionHydrology:  'Hydrology',
+  reportIceFraction: 'Ice Fraction',
+  reportCloudCover:  'Cloud Cover',
+  reportCloudDensity:'Cloud Density',
+  reportCloudHeight: 'Cloud Top Height',
+  reportWindSpeed:   'Wind Speed',
+  reportWindDirection: 'Wind Direction',
+  reportPrecipitableWater: 'Precipitable Water',
+
+  sectionOceanDynamics:  'Ocean Dynamics',
+  reportOceanCurrentSpeed: 'Current Speed',
+  reportOceanCurrentDir: 'Current Direction',
+  reportEquatorialCurrent: 'Equatorial Current',
+  reportPolarCurrent:    'Polar Current',
+  reportHeatTransport:   'Heat Transport',
+  reportSST:             'SST Anomaly',
+
+  sectionWind:           'Wind Field',
+  reportTradeWind:       'Trade Winds',
+  reportWesterlies:      'Westerlies',
+  reportPolarWind:       'Polar Easterlies',
+  reportJetStream:       'Jet Stream',
+  reportMonsoon:         'Monsoon',
+  reportGlobalWindSpeed: 'Global Wind',
+
+  sectionWeather:        'Weather',
+  reportHumidity:        'Humidity',
+  reportStormIntensity:  'Storm Intensity',
+  reportCloudLifetime:   'Cloud Lifetime',
+  reportPrecipType:      'Precip Type',
+  reportEvaporation:     'Evaporation',
+  reportPrecipitation:   'Precipitation',
+  reportRiverDischarge:  'River Discharge',
+
+  sectionCloud:          'Cloud',
+
+  precipRain:  'Rain',
+  precipSnow:  'Snow',
+  precipSleet: 'Sleet',
+  precipNone:  'None',
+
   // ── 3-D scene ─────────────────────────────────────────────────────────────
   sunLabel: 'SOL',
 
@@ -127,6 +185,41 @@ const enUS: Translation = {
     night:       'Night',
     wireframe:   'Wireframe',
   },
+
+  // ── Sprint 6.5.1 — Developer Tools ──────────────────────────────────────
+  devTools:        'Developer Tools',
+  devMonitor:      'Monitor',
+  timeline:        'Timeline',
+  charts:          'Charts',
+
+  devFrameTime:    'Frame Time',
+  devMemory:       'Memory',
+  devSimTick:      'Sim Tick',
+  devSimTime:      'Sim Time',
+  devBuildVersion: 'Build',
+  devEngineCount:  'Engines',
+  devEngineTimings:'Engine Timings',
+  devTotalTime:    'Total',
+
+  tlPlay:    'Play',
+  tlPause:   'Pause',
+  tlReset:   'Reset',
+  tlStep:    'Step',
+  tlSpeed:   'Speed',
+  tlDay:     'Day',
+  tlYear:    'Year',
+  tlSimTime: 'Sim Time',
+  tlSeek:    'Seek',
+  clock10x:  '10×',
+  clock100x: '100×',
+
+  chartTemperature: 'Temperature',
+  chartHumidity:    'Humidity',
+  chartWind:        'Wind',
+  chartOcean:       'Ocean',
+  chartPressure:    'Pressure',
+  chartExport:      'Export CSV',
+  chartNoData:      'No data yet',
 };
 
 export default enUS;
