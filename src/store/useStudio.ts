@@ -80,6 +80,10 @@ interface StudioState {
   controlCenterOpen: boolean;
   toggleControlCenter: () => void;
 
+  // Sprint 6.5.1 — developer tools
+  devMode: boolean;
+  toggleDevMode: () => void;
+
   // performance
   fps: number;
   setFps: (v: number) => void;
@@ -233,6 +237,9 @@ const store = create<StudioState>((set, get) => ({
 
   controlCenterOpen: true,
   toggleControlCenter: () => set((s) => ({ controlCenterOpen: !s.controlCenterOpen })),
+
+  devMode: false,
+  toggleDevMode: () => set((s) => ({ devMode: !s.devMode })),
 
   fps: 60,
   setFps: (v) => set({ fps: v }),
