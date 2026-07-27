@@ -2,6 +2,16 @@ import type { Engine, GaiaState, ClockPreset } from './types';
 import { StateManager } from './StateManager';
 import { SimulationClock } from './SimulationClock';
 
+export interface EngineTiming {
+  id: string;
+  ms: number;
+}
+
+export interface TickProfile {
+  totalMs: number;
+  engines: EngineTiming[];
+}
+
 /**
  * Simulation — the orchestrator.
  *
@@ -20,6 +30,8 @@ export class Simulation {
   private rafId: number | null = null;
   private lastWall = 0;
   private running = false;
+  // ── Sprint 6.5.1: profiling ──────────────────────────────────────────────
+  private _lastProfile: TickProfile = { totalMs: 0, engines: [] };
 
   constructor(state?: StateManager) {
     this.state = state ?? new StateManager();
@@ -36,6 +48,9 @@ export class Simulation {
   }
 
   get enginesList(): readonly Engine[] { return this.engines; }
+
+  /** Last tick's per-engine timing profile (developer tools). */
+  get lastProfile(): TickProfile { return this._lastProfile; }
 
   setRunning(v: boolean) {
     this.clock.setRunning(v);
@@ -61,14 +76,24 @@ export class Simulation {
       tickCount: this.state.read().simulation.tickCount + 1,
     });
 
-    // Run engines in dependency order
+    // Run engines in dependency order, profiling each.
+    const timings: EngineTiming[] = [];
+    const t0 = performance.now();
     for (const engine of this.engines) {
       const current = this.state.read();
+      const e0 = performance.now();
       const out = engine.update(current, tick.dt);
       this.state.replace(engine.id as keyof GaiaState, out as GaiaState[keyof GaiaState]);
+      timings.push({ id: engine.id, ms: performance.now() - e0 });
     }
+    this._lastProfile = { totalMs: performance.now() - t0, engines: timings };
 
     this.state.commit();
+  }
+
+  /** Advance exactly one tick with a fixed dt (for single-step debugging). */
+  singleStep() {
+    this.step(1 / 60);
   }
 
   /** Start the internal RAF loop. Rendering can also drive ticks externally. */

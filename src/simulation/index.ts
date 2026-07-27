@@ -9,10 +9,16 @@ export * from './UnitSystem';
 export { SimulationClock } from './SimulationClock';
 export { StateManager } from './StateManager';
 export { Simulation } from './Simulation';
+export type { EngineTiming, TickProfile } from './Simulation';
+export { SimulationRecorder } from './SimulationRecorder';
+export type { Sample } from './SimulationRecorder';
 export { createInitialState } from './initialState';
 
 import { Simulation } from './Simulation';
 import { PlanetPhysicsEngine } from './engines/PlanetPhysicsEngine';
+import { SeasonEngine } from './engines/SeasonEngine';
+import { OceanEngine } from './engines/OceanEngine';
+import { WindEngine } from './engines/WindEngine';
 import { ClimateEngine } from './engines/ClimateEngine';
 import { HydrologyEngine } from './engines/HydrologyEngine';
 import { GeologyEngine } from './engines/GeologyEngine';
@@ -21,6 +27,9 @@ import { EvolutionEngine } from './engines/EvolutionEngine';
 
 const sim = new Simulation();
 sim.register(new PlanetPhysicsEngine());
+sim.register(new SeasonEngine());
+sim.register(new OceanEngine());
+sim.register(new WindEngine());
 sim.register(new ClimateEngine());
 sim.register(new HydrologyEngine());
 sim.register(new GeologyEngine());
