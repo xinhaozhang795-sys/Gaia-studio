@@ -1,7 +1,5 @@
 /**
- * world/ — Procedural planet generation system (Sprint 7.1).
- *
- * Barrel export for the PlanetDNA & World Seed architecture.
+ * world/ — Procedural planet generation system.
  */
 
 // ── Random ─────────────────────────────────────────────────────────────────────
@@ -24,3 +22,6 @@ export { createWorld, createWorldFromId } from './WorldGenerator';
 
 // ── Genesis (Sprint 7.2) ────────────────────────────────────────────────────────
 export * from './genesis';
+
+// ── Evolution (Sprint 7.3) ──────────────────────────────────────────────────────
+export * from './evolution';
