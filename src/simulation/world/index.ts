@@ -25,3 +25,6 @@ export * from './genesis';
 
 // ── Evolution (Sprint 7.3) ──────────────────────────────────────────────────────
 export * from './evolution';
+
+// ── Terrain (Sprint 7.4) ────────────────────────────────────────────────────────
+export * from './terrain';
