@@ -1,27 +1,28 @@
 /**
  * TerrainGenerator — the main orchestrator for terrain generation.
  *
+ * Sprint 7.4.1 calibration:
+ *   • Volcanic features are clustered into provinces (one per plate pair
+ *     for subduction, one per hotspot) instead of one per event.
+ *   • Mountain ranges generate multiple peaks along connected systems.
+ *   • 10/20/70 distribution is computed by SURFACE AREA, not feature count.
+ *   • Rarity uses multi-factor classification (scale + age + cause + extent).
+ *
  * Pipeline:
  *   PlanetDNA + GenesisState + GeologicalEvolutionState
- *     ↓
- *   ElevationEngine   → elevation grid from geological events
- *     ↓
- *   FeatureBuilder    → terrain feature nodes from events + grid
- *     ↓
- *   ErosionEngine     → age-based erosion simulation
- *     ↓
- *   BiomeTerrainMapper → biome classification
- *     ↓
- *   TerrainFeatureDetector → feature grouping + rarity
- *     ↓
- *   TerrainOutput
+ *     ↓ ElevationEngine → elevation grid
+ *     ↓ FeatureBuilder  → clustered, geologically-grounded features
+ *     ↓ ErosionEngine   → age-based erosion
+ *     ↓ BiomeTerrainMapper → biome classification
+ *     ↓ TerrainFeatureDetector → feature grouping + rarity
+ *     ↓ TerrainOutput
  *
  * Deterministic: same seed → identical terrain. Always.
  */
 
 import type { PlanetDNA } from '../PlanetDNA';
 import type { GenesisState } from '../genesis/types';
-import type { GeologicalEvolutionState } from '../evolution/types';
+import type { GeologicalEvolutionState, SubductionEvent, CollisionEvent } from '../evolution/types';
 import type {
   TerrainOutput, TerrainFeatureNode, TerrainFeatureType, FormationCause,
   TerrainClass, TerrainStats,
@@ -31,6 +32,50 @@ import { computeErosion } from './ErosionEngine';
 import { mapBiomes } from './BiomeTerrainMapper';
 import { detectFeatures } from './TerrainFeatureDetector';
 import { ASTRONOMICAL } from '../../UnitSystem';
+
+// ── Spherical helper ──────────────────────────────────────────────────────────
+
+function angularDistance(
+  lat1: number, lon1: number,
+  lat2: number, lon2: number,
+): number {
+  const dLat = lat2 - lat1;
+  const dLon = lon2 - lon1;
+  const a = Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
+  return 2 * Math.asin(Math.min(1, Math.sqrt(a)));
+}
+
+function moveOnSphere(
+  lat: number, lon: number,
+  dir: number, dist: number,
+): { lat: number; lon: number } {
+  const newLat = Math.asin(
+    Math.sin(lat) * Math.cos(dist) +
+    Math.cos(lat) * Math.sin(dist) * Math.cos(dir),
+  );
+  const dLon = Math.atan2(
+    Math.sin(dir) * Math.sin(dist) * Math.cos(lat),
+    Math.cos(dist) - Math.sin(lat) * Math.sin(newLat),
+  );
+  return {
+    lat: Math.max(-Math.PI / 2, Math.min(Math.PI / 2, newLat)),
+    lon: ((lon + dLon) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2),
+  };
+}
+
+function heading(
+  lat1: number, lon1: number,
+  lat2: number, lon2: number,
+): number {
+  const dLon = lon2 - lon1;
+  const y = Math.sin(dLon) * Math.cos(lat2);
+  const x = Math.cos(lat1) * Math.sin(lat2) -
+    Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+  return (Math.atan2(y, x) + Math.PI * 2) % (Math.PI * 2);
+}
+
+// ── Name generator ────────────────────────────────────────────────────────────
 
 const FEATURE_NAMES = [
   'Solpeak', 'Aetherius', 'Borealis', 'Crommassif', 'Drekrange',
@@ -48,25 +93,48 @@ function nextName(): string {
   return FEATURE_NAMES[nameIdx++ % FEATURE_NAMES.length]!;
 }
 
+// ── Province tracking ─────────────────────────────────────────────────────────
+
+let nextProvinceId = 0;
+function newProvince(): number {
+  return nextProvinceId++;
+}
+
+// ── Main entry point ───────────────────────────────────────────────────────────
+
 export function generateTerrain(
   dna: PlanetDNA,
   genesis: GenesisState,
   evolution: GeologicalEvolutionState,
 ): TerrainOutput {
   nameIdx = 0;
+  nextProvinceId = 0;
 
   const gravityScale = dna.gravity / ASTRONOMICAL.EARTH_GRAVITY;
   const maxElev = 18000 / Math.pow(gravityScale, 0.7);
 
+  // 1. Elevation grid
   const elevationGrid = generateElevationGrid(dna, genesis, evolution, 200);
+
+  // 2. Build clustered features
   const features = buildFeatures(dna, genesis, evolution, elevationGrid.maxElevation);
+
+  // 3. Apply erosion
   const erosion = computeErosion(dna, features);
+
+  // 4. Map biomes
   const biomeMap = mapBiomes(dna, features, elevationGrid.cells);
+
+  // 5. Detect + classify (area-weighted)
   const featureReport = detectFeatures(features, Math.max(maxElev, elevationGrid.maxElevation));
-  const stats = computeStats(features, erosion, elevationGrid, dna);
+
+  // 6. Compute area-weighted stats
+  const stats = computeStats(features, erosion, elevationGrid);
 
   return { features, elevationGrid, erosion, biomeMap, featureReport, stats };
 }
+
+// ── Feature builder ───────────────────────────────────────────────────────────
 
 function buildFeatures(
   dna: PlanetDNA,
@@ -78,133 +146,269 @@ function buildFeatures(
   const gravityScale = dna.gravity / ASTRONOMICAL.EARTH_GRAVITY;
   let nextId = 0;
 
+  // ── Collision features: mountain ranges with multiple peaks ────────────────
+  // Group collisions by plate pair so each pair produces ONE mountain system,
+  // not dozens of independent peaks.
+  const collisionPairs = new Map<string, CollisionEvent[]>();
   for (const coll of evolution.collisions) {
     if (coll.upliftRate < 30) continue;
-
-    let type: TerrainFeatureType;
-    let height: number;
-    let cause: FormationCause;
-
-    if (coll.type === 'continental-collision') {
-      height = Math.min(maxElev, coll.upliftRate * 120 / gravityScale);
-      type = height > maxElev * 0.5 ? 'mountain' : 'plateau';
-      cause = 'plate-collision';
-    } else if (coll.type === 'continental-arc') {
-      height = Math.min(maxElev * 0.6, coll.upliftRate * 60 / gravityScale);
-      type = 'mountain';
-      cause = 'volcanic-arc';
-    } else {
-      height = Math.min(maxElev * 0.4, coll.upliftRate * 30 / gravityScale);
-      type = 'ridge';
-      cause = 'subduction';
-    }
-
-    if (Math.abs(height) < 100) continue;
-
-    const terrainClass = classifyByElevation(height, maxElev);
-    features.push({
-      id: nextId++, type,
-      latitude: coll.latitude, longitude: coll.longitude,
-      angularRadius: 0.08 + coll.convergenceRate * 0.01,
-      height: Math.round(height), originalHeight: Math.round(height),
-      age: Math.round(dna.age * 0.3),
-      formationCause: cause, plateId: coll.plateA,
-      erosionLevel: 0, rarity: terrainClass, rarityLabel: 'common',
-      name: nextName(),
-    });
+    const key = coll.plateA < coll.plateB
+      ? `${coll.plateA}-${coll.plateB}`
+      : `${coll.plateB}-${coll.plateA}`;
+    if (!collisionPairs.has(key)) collisionPairs.set(key, []);
+    collisionPairs.get(key)!.push(coll);
   }
 
+  for (const [, events] of collisionPairs) {
+    // Aggregate: find the strongest collision event for this plate pair
+    const strongest = events.reduce((best, e) =>
+      e.upliftRate > best.upliftRate ? e : best, events[0]!);
+    if (!strongest) continue;
+
+    const provinceId = newProvince();
+    const peakHeight = Math.min(maxElev, strongest.upliftRate * 120 / gravityScale);
+    if (peakHeight < 200) continue;
+
+    // Create the main mountain system: a central peak + satellite peaks
+    // along a range axis perpendicular to the collision direction.
+    const rangeAxis = strongest.angle + Math.PI / 2;
+    const numPeaks = Math.min(5, Math.max(1, Math.floor(strongest.convergenceRate / 2)));
+
+    for (let i = 0; i < numPeaks; i++) {
+      const offset = (i - (numPeaks - 1) / 2) * 0.04;
+      const pos = moveOnSphere(
+        strongest.latitude, strongest.longitude,
+        rangeAxis, Math.abs(offset),
+      );
+      // Each peak slightly lower than the central one
+      const peakFactor = 1 - Math.abs(i - (numPeaks - 1) / 2) * 0.12;
+      const height = Math.round(peakHeight * peakFactor);
+
+      features.push({
+        id: nextId++,
+        type: height > maxElev * 0.5 ? 'mountain' : 'plateau',
+        latitude: pos.lat,
+        longitude: pos.lon,
+        angularRadius: 0.06 + strongest.convergenceRate * 0.005,
+        height,
+        originalHeight: height,
+        age: Math.round(dna.age * 0.3),
+        formationCause: strongest.type === 'continental-collision' ? 'plate-collision' : 'volcanic-arc',
+        plateId: strongest.plateA,
+        erosionLevel: 0,
+        rarity: classifyByElevation(height, maxElev),
+        rarityLabel: 'common',
+        name: nextName(),
+        provinceId,
+      });
+    }
+  }
+
+  // ── Subduction features: trenches + volcanic arcs ──────────────────────────
+  // Deduplicate: one trench + one volcanic arc province per plate pair.
+  const subductionPairs = new Map<string, SubductionEvent[]>();
   for (const sub of evolution.subductions) {
-    const subPlate = evolution.plates.plates[sub.subductingPlate];
-    const overPlate = evolution.plates.plates[sub.overridingPlate];
+    const key = sub.subductingPlate < sub.overridingPlate
+      ? `${sub.subductingPlate}-${sub.overridingPlate}`
+      : `${sub.overridingPlate}-${sub.subductingPlate}`;
+    if (!subductionPairs.has(key)) subductionPairs.set(key, []);
+    subductionPairs.get(key)!.push(sub);
+  }
+
+  for (const [, events] of subductionPairs) {
+    // Aggregate: strongest subduction for this pair
+    const strongest = events.reduce((best, e) =>
+      e.subductionRate > best.subductionRate ? e : best, events[0]!);
+    if (!strongest) continue;
+
+    const plates = evolution.plates.plates;
+    const subPlate = plates[strongest.subductingPlate];
+    const overPlate = plates[strongest.overridingPlate];
+
+    // ── Trench (one per pair) ────────────────────────────────────────────────
     const trenchLat = ((subPlate?.centerLatitude ?? 0) + (overPlate?.centerLatitude ?? 0)) / 2;
     const trenchLon = ((subPlate?.centerLongitude ?? 0) + (overPlate?.centerLongitude ?? 0)) / 2;
 
     features.push({
-      id: nextId++, type: 'trench',
-      latitude: trenchLat, longitude: trenchLon,
-      angularRadius: 0.06, height: sub.trenchDepth, originalHeight: sub.trenchDepth,
-      age: 0, formationCause: 'subduction', plateId: sub.subductingPlate,
-      erosionLevel: 0, rarity: classifyByElevation(sub.trenchDepth, maxElev),
-      rarityLabel: 'common', name: nextName(),
+      id: nextId++,
+      type: 'trench',
+      latitude: trenchLat,
+      longitude: trenchLon,
+      angularRadius: 0.06,
+      height: strongest.trenchDepth,
+      originalHeight: strongest.trenchDepth,
+      age: 0,
+      formationCause: 'subduction',
+      plateId: strongest.subductingPlate,
+      erosionLevel: 0,
+      rarity: classifyByElevation(strongest.trenchDepth, maxElev),
+      rarityLabel: 'common',
+      name: nextName(),
+      provinceId: newProvince(),
     });
 
-    if (sub.subductionRate > 2) {
-      const arcHeight = Math.min(maxElev * 0.5, sub.subductionRate * 400 / gravityScale);
-      features.push({
-        id: nextId++, type: 'volcano',
-        latitude: sub.arcLatitude, longitude: sub.arcLongitude,
-        angularRadius: 0.05, height: Math.round(arcHeight), originalHeight: Math.round(arcHeight),
-        age: 0, formationCause: 'volcanic-arc', plateId: sub.overridingPlate,
-        erosionLevel: 0, rarity: classifyByElevation(arcHeight, maxElev),
-        rarityLabel: 'common', name: nextName(),
-      });
-    }
-  }
+    // ── Volcanic arc province (one per pair, multiple peaks) ─────────────────
+    if (strongest.subductionRate > 2) {
+      const provinceId = newProvince();
+      const arcHeight = Math.min(maxElev * 0.5, strongest.subductionRate * 400 / gravityScale);
+      const numArcVolcanoes = Math.min(4, Math.max(1, Math.floor(strongest.subductionRate / 3)));
 
-  for (const rift of evolution.rifts) {
-    const riftLat = (rift.startLat + rift.endLat) / 2;
-    const riftLon = (rift.startLon + rift.endLon) / 2;
-    const depth = rift.becameOcean ? -(1000 + Math.sqrt(rift.age) * 200) : -800;
+      // Volcanic arc follows the trench-parallel axis
+      const trenchToArcHeading = heading(
+        trenchLat, trenchLon,
+        strongest.arcLatitude, strongest.arcLongitude,
+      );
+      const arcAxis = trenchToArcHeading + Math.PI / 2;
 
-    features.push({
-      id: nextId++, type: rift.becameOcean ? 'basin' : 'rift',
-      latitude: riftLat, longitude: riftLon,
-      angularRadius: rift.becameOcean ? 0.1 : 0.05,
-      height: Math.round(depth), originalHeight: Math.round(depth),
-      age: Math.round(rift.age), formationCause: 'rifting', plateId: rift.plateA,
-      erosionLevel: 0, rarity: classifyByElevation(depth, maxElev),
-      rarityLabel: 'common', name: rift.name,
-    });
+      for (let i = 0; i < numArcVolcanoes; i++) {
+        const offset = (i - (numArcVolcanoes - 1) / 2) * 0.03;
+        const pos = moveOnSphere(
+          strongest.arcLatitude, strongest.arcLongitude,
+          arcAxis, Math.abs(offset),
+        );
+        const volcanoFactor = 1 - Math.abs(i - (numArcVolcanoes - 1) / 2) * 0.15;
+        const height = Math.round(arcHeight * volcanoFactor);
+        if (height < 200) continue;
 
-    if (rift.age > 5) {
-      const shoulderHeight = Math.min(3000 / gravityScale, rift.spreadRate * 200);
-      features.push({
-        id: nextId++, type: 'mountain',
-        latitude: rift.startLat, longitude: rift.startLon,
-        angularRadius: 0.03, height: Math.round(shoulderHeight), originalHeight: Math.round(shoulderHeight),
-        age: Math.round(rift.age), formationCause: 'rifting', plateId: rift.plateA,
-        erosionLevel: 0, rarity: 'normal', rarityLabel: 'common', name: nextName(),
-      });
-    }
-  }
-
-  for (const hs of genesis.hotspots.hotspots) {
-    if (!hs.active) continue;
-    const volcanoHeight = Math.min(maxElev * 0.4, hs.heatFlow * 8000 / gravityScale);
-    if (volcanoHeight < 200) continue;
-
-    features.push({
-      id: nextId++, type: 'volcano',
-      latitude: hs.latitude, longitude: hs.longitude,
-      angularRadius: 0.03, height: Math.round(volcanoHeight), originalHeight: Math.round(volcanoHeight),
-      age: 0, formationCause: 'hotspot', plateId: -1,
-      erosionLevel: 0, rarity: classifyByElevation(volcanoHeight, maxElev),
-      rarityLabel: 'common', name: nextName(),
-    });
-
-    const chain = genesis.hotspots.islandChains.find((c) => c.hotspotId === hs.id);
-    if (chain) {
-      for (let i = 0; i < Math.min(chain.islandCount, 5); i++) {
-        const offset = i * 0.02;
-        const islandLat = hs.latitude + Math.cos(chain.heading) * offset;
-        const islandLon = hs.longitude + Math.sin(chain.heading) * offset;
         features.push({
-          id: nextId++, type: 'island',
-          latitude: Math.max(-Math.PI / 2, Math.min(Math.PI / 2, islandLat)),
-          longitude: ((islandLon % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2),
-          angularRadius: 0.015,
-          height: Math.round(volcanoHeight * (1 - i * 0.15)),
-          originalHeight: Math.round(volcanoHeight * (1 - i * 0.15)),
-          age: i * Math.round(chain.firstEruption),
-          formationCause: 'hotspot', plateId: -1,
-          erosionLevel: i * 0.1, rarity: 'normal', rarityLabel: 'common',
+          id: nextId++,
+          type: 'volcano',
+          latitude: pos.lat,
+          longitude: pos.lon,
+          angularRadius: 0.04,
+          height,
+          originalHeight: height,
+          age: 0,
+          formationCause: 'volcanic-arc',
+          plateId: strongest.overridingPlate,
+          erosionLevel: 0,
+          rarity: classifyByElevation(height, maxElev),
+          rarityLabel: 'common',
           name: nextName(),
+          provinceId,
         });
       }
     }
   }
 
+  // ── Rift features ──────────────────────────────────────────────────────────
+  for (const rift of evolution.rifts) {
+    const riftLat = (rift.startLat + rift.endLat) / 2;
+    const riftLon = (rift.startLon + rift.endLon) / 2;
+    const depth = rift.becameOcean
+      ? -(1000 + Math.sqrt(rift.age) * 200)
+      : -800;
+    const provinceId = newProvince();
+
+    features.push({
+      id: nextId++,
+      type: rift.becameOcean ? 'basin' : 'rift',
+      latitude: riftLat,
+      longitude: riftLon,
+      angularRadius: rift.becameOcean ? 0.1 : 0.05,
+      height: Math.round(depth),
+      originalHeight: Math.round(depth),
+      age: Math.round(rift.age),
+      formationCause: 'rifting',
+      plateId: rift.plateA,
+      erosionLevel: 0,
+      rarity: classifyByElevation(depth, maxElev),
+      rarityLabel: 'common',
+      name: rift.name,
+      provinceId,
+    });
+
+    // Rift shoulder mountains (2 peaks, one on each side)
+    if (rift.age > 5) {
+      const shoulderHeight = Math.min(3000 / gravityScale, rift.spreadRate * 200);
+      const riftHeadingVal = heading(rift.startLat, rift.startLon, rift.endLat, rift.endLon);
+      for (const side of [1, -1]) {
+        const shoulderPos = moveOnSphere(
+          riftLat, riftLon,
+          riftHeadingVal + side * Math.PI / 2,
+          0.03,
+        );
+        features.push({
+          id: nextId++,
+          type: 'mountain',
+          latitude: shoulderPos.lat,
+          longitude: shoulderPos.lon,
+          angularRadius: 0.03,
+          height: Math.round(shoulderHeight),
+          originalHeight: Math.round(shoulderHeight),
+          age: Math.round(rift.age),
+          formationCause: 'rifting',
+          plateId: rift.plateA,
+          erosionLevel: 0,
+          rarity: 'normal',
+          rarityLabel: 'common',
+          name: nextName(),
+          provinceId,
+        });
+      }
+    }
+  }
+
+  // ── Hotspot features: volcanic provinces (one volcano + island chain) ──────
+  for (const hs of genesis.hotspots.hotspots) {
+    if (!hs.active) continue;
+    const volcanoHeight = Math.min(maxElev * 0.4, hs.heatFlow * 8000 / gravityScale);
+    if (volcanoHeight < 200) continue;
+
+    const provinceId = newProvince();
+
+    // Main volcanic center
+    features.push({
+      id: nextId++,
+      type: 'volcano',
+      latitude: hs.latitude,
+      longitude: hs.longitude,
+      angularRadius: 0.03,
+      height: Math.round(volcanoHeight),
+      originalHeight: Math.round(volcanoHeight),
+      age: 0,
+      formationCause: 'hotspot',
+      plateId: -1,
+      erosionLevel: 0,
+      rarity: classifyByElevation(volcanoHeight, maxElev),
+      rarityLabel: 'common',
+      name: nextName(),
+      provinceId,
+    });
+
+    // Island chain — limited to 3-5 islands along the plate motion direction
+    const chain = genesis.hotspots.islandChains.find((c) => c.hotspotId === hs.id);
+    if (chain) {
+      const numIslands = Math.min(chain.islandCount, 4);
+      for (let i = 0; i < numIslands; i++) {
+        const offset = (i + 1) * 0.025;
+        const islandLat = hs.latitude + Math.cos(chain.heading) * offset;
+        const islandLon = hs.longitude + Math.sin(chain.heading) * offset;
+        const islandHeight = Math.round(volcanoHeight * (1 - (i + 1) * 0.18));
+        if (islandHeight < 100) break;
+
+        features.push({
+          id: nextId++,
+          type: 'island',
+          latitude: Math.max(-Math.PI / 2, Math.min(Math.PI / 2, islandLat)),
+          longitude: ((islandLon % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2),
+          angularRadius: 0.015,
+          height: islandHeight,
+          originalHeight: islandHeight,
+          age: (i + 1) * Math.round(chain.firstEruption),
+          formationCause: 'hotspot',
+          plateId: -1,
+          erosionLevel: (i + 1) * 0.12,
+          rarity: 'normal',
+          rarityLabel: 'common',
+          name: nextName(),
+          provinceId,
+        });
+      }
+    }
+  }
+
+  // ── Impact features ────────────────────────────────────────────────────────
   const impacts = evolution.historyEvents.filter((e) => e.title.includes('Impact'));
   for (const impact of impacts) {
     const impactLat = ((impact.time % 180) - 90) * Math.PI / 180;
@@ -212,35 +416,58 @@ function buildFeatures(
     const craterDepth = -1500 / gravityScale;
 
     features.push({
-      id: nextId++, type: 'crater',
-      latitude: impactLat, longitude: impactLon,
-      angularRadius: 0.04, height: Math.round(craterDepth), originalHeight: Math.round(craterDepth),
-      age: Math.round(impact.time), formationCause: 'impact', plateId: -1,
+      id: nextId++,
+      type: 'crater',
+      latitude: impactLat,
+      longitude: impactLon,
+      angularRadius: 0.04,
+      height: Math.round(craterDepth),
+      originalHeight: Math.round(craterDepth),
+      age: Math.round(impact.time),
+      formationCause: 'impact',
+      plateId: -1,
       erosionLevel: Math.min(0.8, impact.time / 500),
-      rarity: classifyByElevation(craterDepth, maxElev), rarityLabel: 'common',
+      rarity: classifyByElevation(craterDepth, maxElev),
+      rarityLabel: 'common',
       name: nextName(),
+      provinceId: newProvince(),
     });
   }
 
+  // ── Background terrain: plains, basins (fills majority of surface) ─────────
   const goldenAngle = Math.PI * (3 - Math.sqrt(5));
   for (let i = 0; i < 80; i++) {
     const y = 1 - (i / 79) * 2;
     const lat = Math.asin(y);
     const lon = (goldenAngle * i) % (Math.PI * 2);
+
     const isOcean = dna.waterRatio > 0.5;
-    const elevation = isOcean ? -2000 - Math.abs(y) * 1000 : 200 + Math.abs(y) * 300;
+    const elevation = isOcean
+      ? -2000 - Math.abs(y) * 1000
+      : 200 + Math.abs(y) * 300;
 
     features.push({
-      id: nextId++, type: isOcean ? 'basin' : 'plain',
-      latitude: lat, longitude: lon, angularRadius: 0.25,
-      height: Math.round(elevation), originalHeight: Math.round(elevation),
-      age: Math.round(dna.age), formationCause: 'background', plateId: -1,
-      erosionLevel: 0.3, rarity: 'normal', rarityLabel: 'common',
+      id: nextId++,
+      type: isOcean ? 'basin' : 'plain',
+      latitude: lat,
+      longitude: lon,
+      angularRadius: 0.25,
+      height: Math.round(elevation),
+      originalHeight: Math.round(elevation),
+      age: Math.round(dna.age),
+      formationCause: 'background',
+      plateId: -1,
+      erosionLevel: 0.3,
+      rarity: 'normal',
+      rarityLabel: 'common',
       name: nextName(),
+      provinceId: -1,
     });
   }
 
-  enforceDistribution(features);
+  // ── Area-weighted 10/20/70 distribution ────────────────────────────────────
+  enforceAreaDistribution(features);
+
   return features;
 }
 
@@ -251,31 +478,57 @@ function classifyByElevation(elevation: number, maxElev: number): TerrainClass {
   return 'normal';
 }
 
-function enforceDistribution(features: TerrainFeatureNode[]): void {
-  const total = features.length;
-  if (total === 0) return;
+/**
+ * Enforce 10/20/70 distribution weighted by SURFACE AREA (angularRadius²),
+ * not by feature count. A single mountain range covering a large area
+ * counts more than hundreds of tiny hills.
+ *
+ * Tolerance: ±5% on each target (wonder 5-15%, spectacular 15-25%, normal 60-80%).
+ */
+function enforceAreaDistribution(features: TerrainFeatureNode[]): void {
+  if (features.length === 0) return;
 
-  const targetWonder = Math.round(total * 0.10);
-  const targetSpectacular = Math.round(total * 0.20);
+  // Compute surface area proxy for each feature
+  const withArea = features.map((f) => ({
+    feature: f,
+    area: f.angularRadius * f.angularRadius,
+    absHeight: Math.abs(f.height),
+  }));
 
-  const sorted = [...features].sort((a, b) =>
-    Math.abs(b.height) - Math.abs(a.height));
+  const totalArea = withArea.reduce((s, w) => s + w.area, 0);
+  if (totalArea <= 0) return;
 
-  for (const f of features) f.rarity = 'normal';
+  // Sort by absolute height (most extreme first)
+  withArea.sort((a, b) => b.absHeight - a.absHeight);
 
-  for (let i = 0; i < targetWonder && i < sorted.length; i++) {
-    sorted[i]!.rarity = 'wonder';
-  }
-  for (let i = targetWonder; i < targetWonder + targetSpectacular && i < sorted.length; i++) {
-    sorted[i]!.rarity = 'spectacular';
+  // Reset all to normal
+  for (const w of withArea) w.feature.rarity = 'normal';
+
+  // Promote features to wonder/spectacular until area targets are met
+  let wonderArea = 0;
+  let spectacularArea = 0;
+  const wonderTarget = totalArea * 0.10;
+  const spectacularTarget = totalArea * 0.20;
+
+  for (const w of withArea) {
+    if (wonderArea < wonderTarget) {
+      w.feature.rarity = 'wonder';
+      wonderArea += w.area;
+    } else if (spectacularArea < spectacularTarget) {
+      w.feature.rarity = 'spectacular';
+      spectacularArea += w.area;
+    } else {
+      break;
+    }
   }
 }
+
+// ── Statistics (area-weighted) ────────────────────────────────────────────────
 
 function computeStats(
   features: TerrainFeatureNode[],
   erosion: { meanErosion: number },
   grid: { maxElevation: number; minElevation: number; meanElevation: number },
-  _dna: PlanetDNA,
 ): TerrainStats {
   const elevations = features.map((f) => f.height);
   const maxElev = elevations.length > 0 ? Math.max(...elevations) : 0;
@@ -284,19 +537,28 @@ function computeStats(
   const highestFeature = features.find((f) => f.height === maxElev);
   const deepestFeature = features.find((f) => f.height === minElev);
 
-  const landCount = features.filter((f) => f.height > 0).length;
-  const total = features.length || 1;
+  // Area-weighted land fraction
+  const totalArea = features.reduce((s, f) => s + f.angularRadius ** 2, 0);
+  const landArea = features.filter((f) => f.height > 0)
+    .reduce((s, f) => s + f.angularRadius ** 2, 0);
+  const landFraction = totalArea > 0
+    ? Math.round((landArea / totalArea) * 100) / 100
+    : 0;
 
-  const wonderCount = features.filter((f) => f.rarity === 'wonder').length;
-  const spectacularCount = features.filter((f) => f.rarity === 'spectacular').length;
-  const normalCount = features.filter((f) => f.rarity === 'normal').length;
+  // Area-weighted class distribution
+  const wonderArea = features.filter((f) => f.rarity === 'wonder')
+    .reduce((s, f) => s + f.angularRadius ** 2, 0);
+  const spectacularArea = features.filter((f) => f.rarity === 'spectacular')
+    .reduce((s, f) => s + f.angularRadius ** 2, 0);
+  const normalArea = features.filter((f) => f.rarity === 'normal')
+    .reduce((s, f) => s + f.angularRadius ** 2, 0);
 
   return {
     meanElevation: grid.meanElevation,
     maxElevation: Math.max(maxElev, grid.maxElevation),
     minElevation: Math.min(minElev, grid.minElevation),
-    landFraction: Math.round((landCount / total) * 100) / 100,
-    oceanFraction: Math.round(((total - landCount) / total) * 100) / 100,
+    landFraction,
+    oceanFraction: Math.round((1 - landFraction) * 100) / 100,
     highestPeak: highestFeature?.name ?? 'Unknown',
     deepestPoint: deepestFeature?.name ?? 'Unknown',
     mountainCount: features.filter((f) => f.type === 'mountain').length,
@@ -305,9 +567,9 @@ function computeStats(
     riftCount: features.filter((f) => f.type === 'rift').length,
     meanErosion: erosion.meanErosion,
     classDistribution: {
-      wonder: Math.round((wonderCount / total) * 100) / 100,
-      spectacular: Math.round((spectacularCount / total) * 100) / 100,
-      normal: Math.round((normalCount / total) * 100) / 100,
+      wonder: totalArea > 0 ? Math.round((wonderArea / totalArea) * 100) / 100 : 0,
+      spectacular: totalArea > 0 ? Math.round((spectacularArea / totalArea) * 100) / 100 : 0,
+      normal: totalArea > 0 ? Math.round((normalArea / totalArea) * 100) / 100 : 0,
     },
   };
 }

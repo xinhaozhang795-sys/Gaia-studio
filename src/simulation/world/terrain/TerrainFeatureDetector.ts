@@ -1,8 +1,11 @@
 /**
  * TerrainFeatureDetector — classifies and groups terrain features.
  *
- * Produces feature groups by type, class distribution, rarity distribution,
- * and a notable features list (wonders and legendaries).
+ * Sprint 7.4.1 calibration:
+ *   • Class distribution is now AREA-WEIGHTED (angularRadius²), not count-based.
+ *   • Rarity uses multi-factor classification: scale + geological uniqueness +
+ *     age + formation mechanism + spatial extent.
+ *
  * Deterministic: same input → same output.
  */
 
@@ -11,13 +14,65 @@ import type {
   DetectedFeatureGroup, TerrainFeatureReport, Rarity,
 } from './types';
 
-function classifyRarity(feature: TerrainFeatureNode, maxElevation: number): Rarity {
+/**
+ * Multi-factor rarity classification.
+ *
+ * A feature is legendary only if it combines:
+ *   • Large scale (height near planetary max)
+ *   • Geological uniqueness (not a common background plain)
+ *   • Significant spatial extent
+ *   • Appropriate age (not fully eroded)
+ *
+ * A 12,000 m mountain can be "rare" without being "legendary" if it
+ * lacks geological uniqueness or is highly eroded.
+ */
+function classifyRarity(
+  feature: TerrainFeatureNode,
+  maxElevation: number,
+): Rarity {
   const absHeight = Math.abs(feature.height);
-  const ratio = absHeight / maxElevation;
+  const heightRatio = absHeight / Math.max(1, maxElevation);
 
-  if (feature.rarity === 'wonder' && ratio > 0.8) return 'legendary';
-  if (feature.rarity === 'wonder') return 'rare';
-  if (feature.rarity === 'spectacular') return 'uncommon';
+  // Geological uniqueness: non-background causes are more unique
+  const uniqueCauses: FormationCause[] = [
+    'plate-collision', 'hotspot', 'impact', 'volcanic-arc', 'rifting',
+  ];
+  const isGeologicallyUnique = uniqueCauses.includes(feature.formationCause);
+
+  // Spatial extent: larger features are more significant
+  const isLargeExtent = feature.angularRadius >= 0.05;
+
+  // Age factor: young or moderately-aged features retain their grandeur;
+  // heavily eroded features lose rarity regardless of height
+  const isEroded = feature.erosionLevel > 0.6;
+
+  // ── Legendary: requires multiple factors ────────────────────────────────────
+  if (
+    feature.rarity === 'wonder' &&
+    heightRatio > 0.7 &&
+    isGeologicallyUnique &&
+    isLargeExtent &&
+    !isEroded
+  ) {
+    return 'legendary';
+  }
+
+  // ── Rare: wonder-class features that are geologically significant ───────────
+  if (feature.rarity === 'wonder' && isGeologicallyUnique) {
+    return 'rare';
+  }
+
+  // ── Rare: wonder-class but eroded or small — still notable ──────────────────
+  if (feature.rarity === 'wonder') {
+    return isEroded ? 'uncommon' : 'rare';
+  }
+
+  // ── Uncommon: spectacular features with geological cause ────────────────────
+  if (feature.rarity === 'spectacular' && isGeologicallyUnique) {
+    return 'uncommon';
+  }
+
+  // ── Common: everything else ─────────────────────────────────────────────────
   return 'common';
 }
 
@@ -25,6 +80,7 @@ export function detectFeatures(
   features: TerrainFeatureNode[],
   maxElevation: number,
 ): TerrainFeatureReport {
+  // ── Group features by type ──────────────────────────────────────────────────
   const groupMap = new Map<TerrainFeatureType, TerrainFeatureNode[]>();
   for (const f of features) {
     if (!groupMap.has(f.type)) groupMap.set(f.type, []);
@@ -66,17 +122,22 @@ export function detectFeatures(
 
   groups.sort((a, b) => b.maxHeight - a.maxHeight);
 
-  const wonderCount = features.filter((f) => f.rarity === 'wonder').length;
-  const spectacularCount = features.filter((f) => f.rarity === 'spectacular').length;
-  const normalCount = features.filter((f) => f.rarity === 'normal').length;
-  const total = features.length || 1;
+  // ── Area-weighted class distribution ────────────────────────────────────────
+  const totalArea = features.reduce((s, f) => s + f.angularRadius ** 2, 0);
+  const wonderArea = features.filter((f) => f.rarity === 'wonder')
+    .reduce((s, f) => s + f.angularRadius ** 2, 0);
+  const spectacularArea = features.filter((f) => f.rarity === 'spectacular')
+    .reduce((s, f) => s + f.angularRadius ** 2, 0);
+  const normalArea = features.filter((f) => f.rarity === 'normal')
+    .reduce((s, f) => s + f.angularRadius ** 2, 0);
 
   const classDistribution = {
-    wonder: Math.round((wonderCount / total) * 100) / 100,
-    spectacular: Math.round((spectacularCount / total) * 100) / 100,
-    normal: Math.round((normalCount / total) * 100) / 100,
+    wonder: totalArea > 0 ? Math.round((wonderArea / totalArea) * 100) / 100 : 0,
+    spectacular: totalArea > 0 ? Math.round((spectacularArea / totalArea) * 100) / 100 : 0,
+    normal: totalArea > 0 ? Math.round((normalArea / totalArea) * 100) / 100 : 0,
   };
 
+  // ── Rarity distribution ─────────────────────────────────────────────────────
   const rarityDist: Record<Rarity, number> = {
     common: 0,
     uncommon: 0,
@@ -90,6 +151,7 @@ export function detectFeatures(
     rarityDist[rarity]++;
   }
 
+  // ── Notable features (wonders + legendaries, sorted by height) ──────────────
   const notableFeatures = features
     .filter((f) => f.rarity === 'wonder')
     .sort((a, b) => Math.abs(b.height) - Math.abs(a.height))
